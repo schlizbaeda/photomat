@@ -10,10 +10,12 @@ program uses multiple instances of `omxplayer`.
 At the moment there is a loop which manages the video playback by using two
 `omxplayer` instances to show some so-called _idle videos_ which should arouse
 attention from the audience.  
-It is planned to play a _countdown video_ when a defined event occurs, for
-example if a pushbutton connected to a Raspberry Pi's GPIO pin is pressed. When
-the countdown is at 0 the program initiates to take a photo.  
-Another planned feature is to show an _applause video_ after the photo was
+Further a _countdown video_ will be played if the input GPIO17 (pin 11) is tied
+to GND. Two seconds before the countdown video will end, an impulse is provided
+at GPIO 7 (pin 26). It takes about one second. This signal may be used to
+trigger another device taking a photo. At the moment the countdown video will
+end the python3 application.  
+Not yet implemented is to show an _applause video_ after the photo was
 taken successfully. After that the idle loop will continue.
 
 ## Software Installation on the Raspberry Pi
