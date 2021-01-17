@@ -29,6 +29,13 @@
 #
 
 
+# TODO:
+# * unload idle videoplayer instance after fade-out when countdown is running    (Beenden der idle-Videoinstanz nach Fade-out, wenn Countdown läuft)
+# * ignore further pushes on buzzer pushbutton when countdown is running         (Erneutes Drücken des Fototasters ignorieren, wenn Countdown läuft)
+# * Add fading feature when switching from countdown to applause sequence        (Fading zwischen Countdown und Applausvideo)
+# * Exit software when second push button (GPIO23, pin 16) is pressed            (Programm beenden bei Druck auf Taster an GPIO23 / Pin 16)
+# * get video parameters like transparency, fade times from cfg resp. meta files (Konfig-/Metadatei(en) für Videoparameter: fade-in, fade-out, Transparenzen)
+
 import time, random
 import os      # getpid(): Get current process id
 import sys     # argv[], exitcode
@@ -38,12 +45,11 @@ import gpiozero
 
 
 
-OMXCOUNT = 4
 OMXINSTANCE_NONE = -1 # Error
 OMXINSTANCE_IDLE1 = 0
 OMXINSTANCE_IDLE2 = 1
 OMXINSTANCE_CNTDN = 2 # Countdown
-OMXINSTANCE_APPL = 3 # Applause
+####OMXINSTANCE_APPL = 3 # Applause
 OMXLAYER = [1, 2, 4, 3]
 
 VID_INDEX = 0
@@ -53,6 +59,7 @@ VID_FILENAM = 1
 STATE_EXIT = 0
 STATE_ERROR = 1
 
+STATE_SELECT_APPL_VIDEO = 8
 STATE_SELECT_IDLE_VIDEO = 9
 
 STATE_START_IDLE1_VIDEO = 10
@@ -239,25 +246,28 @@ class StateMachine:
                            ]
         self.videos_cntdn = ['/home/pi/Videos/Der weiß-blaue Babystrampler.mp4',
                              '/home/pi/Videos/Sprachprobleme im Biergarten.mp4']
-        self.videos_appl = ['/home/pi/Videos/applause00.mp4',
-                            '/home/pi/Videos/applause01.mp4',
-                            '/home/pi/Videos/applause02.mp4',
-                            '/home/pi/Videos/applause03.mp4',
-                            '/home/pi/Videos/applause04.mp4',
-                            '/home/pi/Videos/applause05.mp4',
-                            '/home/pi/Videos/applause06.mp4']
+        self.videos_appl = ['/home/pi/Videos/Quirbeutel.mp4']
+        #self.videos_appl = ['/home/pi/Videos/applause00.mp4',
+        #                    '/home/pi/Videos/applause01.mp4',
+        #                    '/home/pi/Videos/applause02.mp4',
+        #                    '/home/pi/Videos/applause03.mp4',
+        #                    '/home/pi/Videos/applause04.mp4',
+        #                    '/home/pi/Videos/applause05.mp4',
+        #                    '/home/pi/Videos/applause06.mp4']
 
         # Create four instances of omxplayer management:
-        self.pl = [None, None, None, None]
+        self.manage_instance = 0
+        self.pl = [None, None, None]
+        ####self.pl = [None, None, None, None]
         self.pl[OMXINSTANCE_IDLE1] = VideoPlayer(OMXLAYER[OMXINSTANCE_IDLE1])
         self.pl[OMXINSTANCE_IDLE2] = VideoPlayer(OMXLAYER[OMXINSTANCE_IDLE2])
         self.pl[OMXINSTANCE_CNTDN] = VideoPlayer(OMXLAYER[OMXINSTANCE_CNTDN])
-        self.pl[OMXINSTANCE_APPL] = VideoPlayer(OMXLAYER[OMXINSTANCE_APPL])
+        ####self.pl[OMXINSTANCE_APPL] = VideoPlayer(OMXLAYER[OMXINSTANCE_APPL])
         
         self.pl[OMXINSTANCE_IDLE1].fullscreen = '860,50,1820,590' # DEBUG!
         self.pl[OMXINSTANCE_IDLE2].fullscreen = '900,50,1860,590' # DEBUG!
         self.pl[OMXINSTANCE_CNTDN].fullscreen = '880,70,1840,610' # DEBUG!
-        self.pl[OMXINSTANCE_APPL].fullscreen = '800,100,1760,640' # DEBUG!
+        ####self.pl[OMXINSTANCE_APPL].fullscreen = '800,100,1760,640' # DEBUG!
         
 
         # Non-video properties:
@@ -282,6 +292,8 @@ class StateMachine:
             name = 'STATE_EXIT'
         elif state == STATE_ERROR:
             name = 'STATE_ERROR'
+        elif state == STATE_SELECT_APPL_VIDEO:
+            name = 'STATE_SELECT_APPL_VIDEO'
         elif state == STATE_SELECT_IDLE_VIDEO:
             name = 'STATE_SELECT_IDLE_VIDEO'
         elif state == STATE_START_IDLE1_VIDEO:
@@ -304,15 +316,23 @@ class StateMachine:
             name = '<unknown state>'
         return name
 
-    def random_video(self, instance):
+    def random_video(self, instance, applause):
         if instance == OMXINSTANCE_IDLE1 or \
            instance == OMXINSTANCE_IDLE2:
-                #index = random.randint(0, len(self.videos_idle) - 1)
-                index = self.debugrandom_idle # DEBUG!
-                filenam = self.videos_idle[index]
-                self.debugrandom_idle += 1 # DEBUG!
-                if self.debugrandom_idle >= len(self.videos_idle): # DEBUG!
-                    self.debugrandom_idle = 0 # DEBUG!
+                if applause == False: # select an idle video:
+                    #index = random.randint(0, len(self.videos_idle) - 1)
+                    index = self.debugrandom_idle # DEBUG!
+                    filenam = self.videos_idle[index]
+                    self.debugrandom_idle += 1 # DEBUG!
+                    if self.debugrandom_idle >= len(self.videos_idle): # DEBUG!
+                        self.debugrandom_idle = 0 # DEBUG!
+                else: # select an applause video:
+                    #index = random.randint(0, len(self.videos_appl) - 1)
+                    index = self.debugrandom_appl # DEBUG!
+                    filenam = self.videos_appl[index]
+                    self.debugrandom_appl += 1 # DEBUG!
+                    if self.debugrandom_appl >= len(self.videos_appl): # DEBUG!
+                        self.debugrandom_appl = 0 # DEBUG!
         elif instance == OMXINSTANCE_CNTDN:
                 #index = random.randint(0, len(self.videos_cntdn) - 1)
                 index = self.debugrandom_cntdn # DEBUG!
@@ -320,13 +340,13 @@ class StateMachine:
                 self.debugrandom_cntdn += 1 # DEBUG!
                 if self.debugrandom_cntdn >= len(self.videos_cntdn): # DEBUG!
                     self.debugrandom_cntdn = 0 # DEBUG!
-        elif instance == OMXINSTANCE_APPL:
-                #index = random.randint(0, len(self.videos_appl) - 1)
-                index = self.debugrandom_appl # DEBUG!
-                filenam = self.videos_appl[index]
-                self.debugrandom_appl += 1 # DEBUG!
-                if self.debugrandom_appl >= len(self.videos_appl): # DEBUG!
-                    self.debugrandom_appl = 0 # DEBUG!
+        #elif instance == OMXINSTANCE_APPL:
+        #        #index = random.randint(0, len(self.videos_appl) - 1)
+        #        index = self.debugrandom_appl # DEBUG!
+        #        filenam = self.videos_appl[index]
+        #        self.debugrandom_appl += 1 # DEBUG!
+        #        if self.debugrandom_appl >= len(self.videos_appl): # DEBUG!
+        #            self.debugrandom_appl = 0 # DEBUG!
         else:
                 index = -1
                 filenam = None
@@ -334,12 +354,12 @@ class StateMachine:
 
     def get_idle_instance_waiting(self):
         if self.pl[OMXINSTANCE_IDLE1].playback_status == 'None' or \
-           self.pl[OMXINSTANCE_IDLE1].playback_status[0:9] == 'Exception' or \
-           self.pl[OMXINSTANCE_IDLE1].playback_status == 'Stopped':
+           self.pl[OMXINSTANCE_IDLE1].playback_status == 'Stopped' or \
+           self.pl[OMXINSTANCE_IDLE1].playback_status[0:9] == 'Exception':
                ret = OMXINSTANCE_IDLE1
         elif self.pl[OMXINSTANCE_IDLE2].playback_status == 'None' or \
-             self.pl[OMXINSTANCE_IDLE2].playback_status[0:9] == 'Exception' or \
-             self.pl[OMXINSTANCE_IDLE2].playback_status == 'Stopped':
+             self.pl[OMXINSTANCE_IDLE2].playback_status == 'Stopped' or \
+             self.pl[OMXINSTANCE_IDLE2].playback_status[0:9] == 'Exception':
                ret = OMXINSTANCE_IDLE2
         else:
                # There is no free idle-instance to init with a new video file:
@@ -347,15 +367,17 @@ class StateMachine:
         return ret
 
     def manage_players(self):
-        [pl.updt_playback_status() for pl in self.pl]
-        #for pl in self.pl[OMXINSTANCE_IDLE1:OMXINSTANCE_APPL + 1]:
-        for pl in self.pl:
-            # Delete finished omxplayer instances: 
-            if pl.playback_status == 'Stopped' or \
-               pl.playback_status[0:9] == 'Exception':
-                pl.unload_omxplayer()
-            # video fading:
-            pl.fade()
+        self.pl[self.manage_instance].updt_playback_status()
+        # Delete finished omxplayer instance: 
+        if self.pl[self.manage_instance].playback_status == 'Stopped' or \
+           self.pl[self.manage_instance].playback_status[0:9] == 'Exception':
+            self.pl[self.manage_instance].unload_omxplayer()
+        # video fading:
+        self.pl[self.manage_instance].fade()
+
+        self.manage_instance += 1
+        if self.manage_instance >= len(self.pl):
+            self.manage_instance = 0
 
 
     #### Common states ####
@@ -372,7 +394,9 @@ class StateMachine:
             pass
         else:
             # Initialise a new omxplayer instance with a random video file:
-            video = self.random_video(inst)
+            applause = self.state == STATE_SELECT_APPL_VIDEO
+            video = self.random_video(inst,
+                        self.state == STATE_SELECT_APPL_VIDEO)
             if video[VID_INDEX] >= 0:
                 self.pl[inst].alpha_start = 0
                 self.pl[inst].alpha_start_fadetime = 4
@@ -443,7 +467,7 @@ class StateMachine:
     def state_select_cntdn_video(self, cntdn_fadetime=2):
         print('STATE_SELECT_CNTDN_VIDEO')
         # Create omxplayer instance for countdown video:
-        video = self.random_video(OMXINSTANCE_CNTDN)
+        video = self.random_video(OMXINSTANCE_CNTDN, False)
         if video[VID_INDEX] >= 0:
             self.pl[OMXINSTANCE_CNTDN].alpha_start = 0
             self.pl[OMXINSTANCE_CNTDN].alpha_start_fadetime = cntdn_fadetime
@@ -505,8 +529,13 @@ class StateMachine:
                 elif remaining - 2 <= 0: # switch on trigger pin (rising slope):
                     if self.gpio_triggerpin.is_lit == False:
                         self.gpio_triggerpin.on()
+                        # DEBUG!
+                        # todo: do it more sophisticated!
+                        self.pl[OMXINSTANCE_IDLE1].unload_omxplayer()
+                        self.pl[OMXINSTANCE_IDLE2].unload_omxplayer()
         else: # self.pl[OMXINSTANCE_CNTDN] isn't running
-               self.state = STATE_EXIT
+               #self.state = STATE_EXIT
+               self.state = STATE_SELECT_APPL_VIDEO
 
     #### Loop of the state machine ####    
     def run(self):
@@ -528,7 +557,7 @@ class StateMachine:
                 buzzer_debounce = 0
             lastbuzzer = buzzer
             if buzzer == True and buzzer_debounce == 2:
-                print('buzzer was pressed (stable)')
+                print('buzzer has been pressed (stable)')
                 self.state = STATE_SELECT_CNTDN_VIDEO
 
 
@@ -536,7 +565,8 @@ class StateMachine:
             
             if self.state == STATE_ERROR:
                 self.state_error()
-            elif self.state == STATE_SELECT_IDLE_VIDEO:
+            elif self.state == STATE_SELECT_APPL_VIDEO or \
+                 self.state == STATE_SELECT_IDLE_VIDEO:
                 self.state_select_idle_video()
             elif self.state == STATE_START_IDLE1_VIDEO:
                 self.state_start_idle_video(OMXINSTANCE_IDLE1)
