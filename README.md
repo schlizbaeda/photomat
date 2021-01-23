@@ -2,27 +2,34 @@
 yet another omxplayer wrapper which plays random videos for intended usage on
 photobooth equipment.
 
+## GPIO connections
+* GPIO17 (pin 11): buzzer push button
+* GPIO7 (pin 26): trigger signal for external camera
+* GPIO23 (pin 16): a small and hidden switch to exit the software
+
 ## Description
 This program uses the `omxplayer` software on the Raspberry Pi to show (short)
 videos in a random order. To achieve a smooth fading between two videos this
 program uses multiple instances of `omxplayer`.
 
-At the moment there is a loop which manages the video playback by using two
+This software starts a loop which manages the video playback by using two
 `omxplayer` instances to show some so-called _idle videos_ which should arouse
 attention from the audience.  
-Further a _countdown video_ will be played if the input GPIO17 (pin 11) is tied
-to GND. Two seconds before the countdown video will end, an impulse is provided
-at GPIO 7 (pin 26). It takes about one second. This signal may be used to
-trigger another device taking a photo.  
+Further a _countdown video_ will be played if the input GPIO17 is tied to GND.
+Two seconds before the countdown video will end, an impulse is provided at 
+GPIO7. It takes about one second. This signal may be used to trigger another
+device taking a photo. While the countdown video is playing any further ties
+to GND of GPIO17 will be ignored. This behaviour avoids errors due to multiple
+pushes of the buzzer pushbutton.  
 After the countdown video has finished an _applause video_ will be selected and
 started. It is internally handled like an idle video. The idle loop keeps on
-runnung until GPIO17 is tied to GND agin.
+runnung until GPIO17 is tied to GND again.
+
+if GPIO23 is tied to GND the video loop will end and the software therefore
+exits.
 
 ## Not yet implemented
-* unload idle videoplayer instance after fade-out when countdown is running  
-* ignore further pushes on buzzer pushbutton when countdown is running  
 * Add fading feature when switching from countdown to applause sequence  
-* Exit software when second push button (GPIO23, pin 16) is pressed  
 * get video parameters like transparency, fade times from cfg resp. meta files
 
 ## Software Installation on the Raspberry Pi
