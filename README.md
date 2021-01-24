@@ -23,14 +23,16 @@ to GND of GPIO17 will be ignored. This behaviour avoids errors due to multiple
 pushes of the buzzer pushbutton.  
 After the countdown video has finished an _applause video_ will be selected and
 started. It is internally handled like an idle video. The idle loop keeps on
-runnung until GPIO17 is tied to GND again.
+runnung until GPIO17 is tied to GND again. Now there is a fading between the
+countdown video and the applause video
 
 if GPIO23 is tied to GND the video loop will end and the software therefore
 exits.
 
 ## Not yet implemented
-* Add fading feature when switching from countdown to applause sequence  
+* issue: Select random applause video earlier to get a better fading behaviour.
 * get video parameters like transparency, fade times from cfg resp. meta files
+
 
 ## Software Installation on the Raspberry Pi
 Clone this repository onto the Raspberry Pi and start the installation
@@ -42,5 +44,3 @@ git clone https://github.com/schlizbaeda/photomat
 cd photomat
 ./photomat-setup.sh
 ```
-
-

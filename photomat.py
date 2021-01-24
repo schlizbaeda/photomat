@@ -50,7 +50,7 @@ OMXINSTANCE_IDLE1 = 0
 OMXINSTANCE_IDLE2 = 1
 OMXINSTANCE_CNTDN = 2 # Countdown
 ####OMXINSTANCE_APPL = 3 # Applause
-OMXLAYER = [1, 2, 4, 3]
+OMXLAYER = [2, 1, 4, 3]
 
 VID_INDEX = 0
 VID_FILENAM = 1
@@ -81,8 +81,12 @@ VERBOSE_GPIO = 3
 VERBOSE_VIDEOINFO = 4
 VERBOSE_ACTION = 5
 #VERBOSE_DETAIL = 6
+VERBOSITY = VERBOSE_ACTION # todo: CMDLIN_PARAM
 
-	
+def print_verbose(txt, verbosity, newline=True):
+    if VERBOSITY >= verbosity:
+        if newline: print()
+        print(txt, end='', flush=True)	
 	
 class VideoPlayer:
     def __init__(self, layer):
@@ -94,6 +98,10 @@ class VideoPlayer:
         self.alpha_start = 0
         self.alpha_play = 0
         self.alpha_end = 0
+        self.gpio_pin = None
+        self.gpio_on = 0
+        self.gpio_off = 0
+        
         self.last_alpha = 0
         
         self.omxplayer = None
@@ -222,6 +230,26 @@ class VideoPlayer:
                 ##print(sepperl) # DEBUG!
             self.set_alpha(alpha)
             
+            # Check GPIO signaling:
+            if type(self.gpio_pin) == gpiozero.output_devices.LED:
+                remaining = self.duration - self.position
+                if remaining - self.gpio_off <= 0:
+                    # switch off trigger pin (falling slope)
+                    if self.gpio_pin.is_lit == True:
+                        self.gpio_pin.off()
+                        print_verbose(
+                             '-> camera trigger signal via GPIO stopped. ',
+                             VERBOSE_GPIO)
+                elif remaining - self.gpio_on <= 0:
+                    # switch on trigger pin (rising slope):
+                    if self.gpio_pin.is_lit == False:
+                        self.gpio_pin.on()
+                        print_verbose(
+                             '-> camera trigger signal via GPIO started. ',
+                             VERBOSE_GPIO)
+
+                
+            
 
 class StateMachine:
     def __init__(self):
@@ -279,15 +307,13 @@ class StateMachine:
         self.pl[OMXINSTANCE_CNTDN].fullscreen = '880,70,1840,610' # DEBUG!
         ####self.pl[OMXINSTANCE_APPL].fullscreen = '800,100,1760,640' # DEBUG!
         
-
         # GPIO access:
         self.gpio_buzzer = gpiozero.Button(17) # J8 pin 11
         self.gpio_triggerpin = gpiozero.LED(7) # J8 pin 26
         self.gpio_exitbtn = gpiozero.Button(23) # J8 pin 16
         
         # Non-video properties:
-        self.verbose = VERBOSE_ACTION
-        self.timeslot = 0.02
+        self.timeslot = 0.02 # todo: CMDLIN_PARAM
         self.debugrandom_idle = 0 # DEBUG!
         self.debugrandom_cntdn = 0 # DEBUG!
         self.debugrandom_appl = 0 # DEBUG!
@@ -295,11 +321,6 @@ class StateMachine:
         # Initialisation of the state machine:
         self.errmsg = ''
         self.state = STATE_SELECT_IDLE_VIDEO
-
-    def print_verbose(self, txt, verbosity, newline=True):
-        if self.verbose >= verbosity:
-            if newline: print()
-            print(txt, end='', flush=True)
 
     def state_name(self, state=-1):
         if state == -1:
@@ -415,27 +436,13 @@ class StateMachine:
                     ] + self.cmdlin_params,
                     dbus_name=dbus_path,
                     pause=True)
-                self.print_verbose(
-                        '    instance[{}] initialised with video[{}] "{}" '.format(
-                        inst, video[VID_INDEX], video[VID_FILENAM]),
-                        VERBOSE_VIDEOINFO)
-#                if inst == OMXINSTANCE_IDLE1:
-#                    self.state = STATE_START_IDLE1_VIDEO
-#                elif inst == OMXINSTANCE_IDLE2:
-#                    self.state = STATE_START_IDLE2_VIDEO
+                print_verbose(
+                    '    instance[{}] initialised with video[{}] "{}" '.format(
+                    inst, video[VID_INDEX], video[VID_FILENAM]),
+                    VERBOSE_VIDEOINFO)
             else:
                 inst = OMXINSTANCE_ERR_NO_VIDEO
-#                self.errmsg = 'No idle videos available to ' \
-#                              'initialise instance {}'.format(inst)
-#                self.exitcode = 1
-#                self.state = STATE_ERROR
         return inst
-
-
-
-
-
-
 
     def manage_players(self):
         self.pl[self.manage_instance].updt_playback_status()
@@ -487,10 +494,10 @@ class StateMachine:
         #            ] + self.cmdlin_params,
         #            dbus_name=dbus_path,
         #            pause=True)
-        #        self.print_verbose(
-        #                '    instance[{}] initialised with video[{}] "{}" '.format(
-        #                inst, video[VID_INDEX], video[VID_FILENAM]),
-        #                VERBOSE_VIDEOINFO)
+        #        print_verbose(
+        #            '    instance[{}] initialised with video[{}] "{}" '.format(
+        #            inst, video[VID_INDEX], video[VID_FILENAM]),
+        #            VERBOSE_VIDEOINFO)
         #        if inst == OMXINSTANCE_IDLE1:
         #            self.state = STATE_START_IDLE1_VIDEO
         #        elif inst == OMXINSTANCE_IDLE2:
@@ -550,7 +557,6 @@ class StateMachine:
 
     #### Countdown video states ####
     def state_select_cntdn_video(self, cntdn_fadetime=2):
-        ###print('STATE_SELECT_CNTDN_VIDEO')
         # Create omxplayer instance for countdown video:
         video = self.random_video(OMXINSTANCE_CNTDN, False)
         if video[VID_INDEX] >= 0:
@@ -559,6 +565,10 @@ class StateMachine:
             self.pl[OMXINSTANCE_CNTDN].alpha_start = 0
             self.pl[OMXINSTANCE_CNTDN].alpha_play = 255
             self.pl[OMXINSTANCE_CNTDN].alpha_end = 0
+            self.pl[OMXINSTANCE_CNTDN].gpio_pin = self.gpio_triggerpin
+            self.pl[OMXINSTANCE_CNTDN].gpio_on = 2 # todo: METAFILE
+            self.pl[OMXINSTANCE_CNTDN].gpio_off = 1 # todo: METAFILE
+
             self.pl[OMXINSTANCE_CNTDN].last_alpha = 0
                 
             dbus_path = 'org.mpris.MediaPlayer2.omxplayer{}_{}'\
@@ -573,10 +583,10 @@ class StateMachine:
                 ] + self.cmdlin_params,
                 dbus_name=dbus_path,
                 pause=True)
-            self.print_verbose(
-                    '    instance[{}] initialised with video[{}] "{}" '.format(
-                    OMXINSTANCE_CNTDN, video[VID_INDEX], video[VID_FILENAM]),
-                    VERBOSE_VIDEOINFO)
+            print_verbose(
+                '    instance[{}] initialised with video[{}] "{}" '.format(
+                OMXINSTANCE_CNTDN, video[VID_INDEX], video[VID_FILENAM]),
+                VERBOSE_VIDEOINFO)
         else:
             self.errmsg = 'No countdown videos available to ' \
                           'initialise instance {}'.format(inst)
@@ -584,15 +594,15 @@ class StateMachine:
             self.state = STATE_ERROR
         self.state = STATE_START_CNTDN_VIDEO
 
-    def state_start_cntdn_video(self, cntdn_fadetime=2):
-        ###print('STATE_START_CNTDN_VIDEO')
+    def state_start_cntdn_video(self):
         for pl in self.pl[OMXINSTANCE_IDLE1:OMXINSTANCE_IDLE2 + 1]:
             if pl.playback_status == 'Playing' or \
                pl.playback_status == 'Paused':
                 # initiate now fading of idle video sequence due to countdown:
                 pl.fadetime_start = 0 # exit from eventually fading-in
-                pl.fadetime_end = cntdn_fadetime
-                pl.duration = pl.position + cntdn_fadetime + self.timeslot
+                #pl.fadetime_end = cntdn_fadetime # DEBUG!
+                pl.fadetime_end = self.pl[OMXINSTANCE_CNTDN].fadetime_end 
+                pl.duration = pl.position + pl.fadetime_end + self.timeslot
         self.state = STATE_PLAY_CNTDN_VIDEO
 
     def state_play_cntdn_video(self):
@@ -613,34 +623,20 @@ class StateMachine:
                self.pl[OMXINSTANCE_CNTDN].position \
                > self.pl[OMXINSTANCE_CNTDN].fadetime_start:
                    # Unload the idle instances as soon as possible:
-                   self.print_verbose('    unload the idle video instances!',
-                                      VERBOSE_ACTION)
+                   print_verbose('    unload the idle video instances!',
+                                 VERBOSE_ACTION)
                    self.pl[OMXINSTANCE_IDLE1].unload_omxplayer()
                    self.pl[OMXINSTANCE_IDLE2].unload_omxplayer()
-                   # Do this only once:
+                   # Avoid further calls of this if-branch:
                    self.state = STATE_WAIT2_CNTDN_VIDEO
-                   
                 
+            # DEBUG!
             remaining = self.pl[OMXINSTANCE_CNTDN].duration \
                         - self.pl[OMXINSTANCE_CNTDN].position
-            if remaining - 1 <= 0: # switch off trigger pin (falling slope):
-                if self.gpio_triggerpin.is_lit == True:
-                    self.gpio_triggerpin.off()
-                    self.print_verbose(
-                         '-> camera trigger signal via GPIO 7 stopped. ',
-                         VERBOSE_GPIO)
-            elif remaining - 2 <= 0: # switch on trigger pin (rising slope):
-                if self.gpio_triggerpin.is_lit == False:
-                    self.gpio_triggerpin.on()
-                    self.print_verbose(
-                         '-> camera trigger signal via GPIO 7 started. ',
-                         VERBOSE_GPIO)
-                    # # DEBUG!
-                    # # todo: do it more sophisticated!
-                    # self.pl[OMXINSTANCE_IDLE1].unload_omxplayer()
-                    # self.pl[OMXINSTANCE_IDLE2].unload_omxplayer()
+            if remaining <= self.pl[OMXINSTANCE_CNTDN].fadetime_end:
+                # change state of state machine
+                self.state = STATE_SELECT_APPL_VIDEO
         else: # self.pl[OMXINSTANCE_CNTDN] isn't running
-               #self.state = STATE_EXIT
                self.state = STATE_SELECT_APPL_VIDEO
 
     #### Loop of the state machine ####    
@@ -660,14 +656,13 @@ class StateMachine:
 
             # Print current state of the state machine:
             if self.state != last_state:
-                self.print_verbose('STATE=={}: "{}" '.format(
-                                       self.state,
-                                       self.state_name()),
-                                   VERBOSE_STATE)
+                print_verbose('STATE=={}: "{}" '.format(self.state,
+                                                        self.state_name()),
+                              VERBOSE_STATE)
             else:
-                self.print_verbose('.',
-                                   VERBOSE_STATE_PROGRESS,
-                                   newline=False)
+                print_verbose('.',
+                              VERBOSE_STATE_PROGRESS,
+                              newline=False)
             last_state = self.state
             
             # Check for buzzer button
@@ -680,9 +675,9 @@ class StateMachine:
                     buzzer_debounce = 0
                 last_buzzer = buzzer
                 if buzzer == True and buzzer_debounce == 2:
-                    self.print_verbose('<= buzzer has been tied to GND' 
-                                       + ' (debounced) ',
-                                       VERBOSE_GPIO)
+                    print_verbose('<= buzzer has been tied to GND' 
+                                  + ' (debounced) ',
+                                  VERBOSE_GPIO)
                     self.state = STATE_SELECT_CNTDN_VIDEO
             
             # Check for exit button:
@@ -693,9 +688,9 @@ class StateMachine:
                 exitbtn_debounce = 0
             last_exitbtn = exitbtn
             if exitbtn == True and exitbtn_debounce == 2:
-                self.print_verbose('<= exitpin has been tied to GND'
-                                   + ' (debounced) ',
-                                   VERBOSE_GPIO)
+                print_verbose('<= exitpin has been tied to GND'
+                              + ' (debounced) ',
+                              VERBOSE_GPIO)
                 self.state = STATE_EXIT # exit the state machine loop
 
 
@@ -726,7 +721,7 @@ class StateMachine:
         # cleanup all omxplayer instances
         for pl in self.pl:
             pl.unload_omxplayer()
-        if self.verbose >= VERBOSE_STATE:
+        if VERBOSITY >= VERBOSE_STATE:
             print()
 
 if __name__ == '__main__':
