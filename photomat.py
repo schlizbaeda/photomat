@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # photomat.py 
-# Copyright (C) 2020 schlizbaeda
+# Copyright (C) 2020-2021 schlizbaeda
 #
 # photomat.py is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -59,7 +59,6 @@ VID_FILENAM = 1
 STATE_EXIT = 0
 STATE_ERROR = 1
 
-STATE_SELECT_APPL_VIDEO = 8
 STATE_SELECT_IDLE_VIDEO = 9
 
 STATE_START_IDLE1_VIDEO = 10
@@ -72,9 +71,10 @@ STATE_SELECT_CNTDN_VIDEO = 30
 STATE_START_CNTDN_VIDEO = 31
 STATE_PLAY_CNTDN_VIDEO = 32
 STATE_WAIT1_CNTDN_VIDEO = 33
-STATE_WAIT2_CNTDN_VIDEO = 34
+STATE_SELECT_APPL_VIDEO = 34
+STATE_WAIT2_CNTDN_VIDEO = 35
 
-VERBOSE_NONE = 0
+prVERBOSE_NONE = 0
 VERBOSE_ERROR = 1
 VERBOSE_STATE = 2
 VERBOSE_STATE_PROGRESS = 3
@@ -254,8 +254,7 @@ class VideoPlayer:
                              '-> camera trigger signal via GPIO started. ',
                              VERBOSE_GPIO)
 
-                
-            
+
 
 class StateMachine:
     def __init__(self):
@@ -299,7 +298,7 @@ class StateMachine:
         #                    '/home/pi/Videos/applause05.mp4',
         #                    '/home/pi/Videos/applause06.mp4']
 
-        # Create four instances of omxplayer management:
+        # Create three instances of omxplayer management:
         self.manage_instance = 0
         self.pl = [None, None, None]
         ####self.pl = [None, None, None, None]
@@ -308,9 +307,9 @@ class StateMachine:
         self.pl[OMXINSTANCE_CNTDN] = VideoPlayer(OMXLAYER[OMXINSTANCE_CNTDN])
         ####self.pl[OMXINSTANCE_APPL] = VideoPlayer(OMXLAYER[OMXINSTANCE_APPL])
         
-        self.pl[OMXINSTANCE_IDLE1].fullscreen = '860,50,1820,590' # DEBUG!
-        self.pl[OMXINSTANCE_IDLE2].fullscreen = '870,50,1830,590' # DEBUG!
-        self.pl[OMXINSTANCE_CNTDN].fullscreen = '880,70,1840,610' # DEBUG!
+        self.pl[OMXINSTANCE_IDLE1].fullscreen = '760,50,1720,590' # DEBUG!
+        self.pl[OMXINSTANCE_IDLE2].fullscreen = '770,50,1730,590' # DEBUG!
+        self.pl[OMXINSTANCE_CNTDN].fullscreen = '780,70,1740,610' # DEBUG!
         ####self.pl[OMXINSTANCE_APPL].fullscreen = '800,100,1760,640' # DEBUG!
         
         # GPIO access:
@@ -320,6 +319,8 @@ class StateMachine:
         
         # Non-video properties:
         self.timeslot = 0.02 # todo: CMDLIN_PARAM
+        self.buzzer_enabled = True
+        
         self.debugrandom_idle = 0 # DEBUG!
         self.debugrandom_cntdn = 0 # DEBUG!
         self.debugrandom_appl = 0 # DEBUG!
@@ -432,6 +433,10 @@ class StateMachine:
                 
                 dbus_path = 'org.mpris.MediaPlayer2.omxplayer{}_{}'\
                             .format(os.getpid(), inst)
+                ## Error-Gaudi:
+                #print_verbose('#Error-Gaudi: wait for 0.25 sec', VERBOSE_ERROR)
+                #time.sleep(0.25) # Error-Gaudi
+                
                 self.pl[inst].load_omxplayer(
                     video[VID_FILENAM],
                     ['--win', self.pl[inst].fullscreen,
@@ -442,6 +447,16 @@ class StateMachine:
                     ] + self.cmdlin_params,
                     dbus_name=dbus_path,
                     pause=True)
+
+                # Error-Gaudi:
+                print_verbose('#Error-Gaudi: wait for 0.05 sec', VERBOSE_ERROR)
+                time.sleep(0.05) # Error-Gaudi
+                
+                # Error-Gaudi:
+                if self.pl[inst].omxplayer is None: # Error-Gaudi
+                    print_verbose('#Error-Gaudi: self.select_video:\n#Error-Gaudi: load_omxplayer() results in None!\n#Error-Gaudi: videfile=={}'.format(video[VID_FILENAM]), 
+                                  VERBOSE_ERROR) # Error-Gaudi
+
                 print_verbose(
                     '    instance[{}] initialised with video[{}] "{}" '.format(
                     inst, video[VID_INDEX], video[VID_FILENAM]),
@@ -456,6 +471,11 @@ class StateMachine:
         if self.pl[self.manage_instance].playback_status == 'Stopped' or \
            self.pl[self.manage_instance].playback_status[0:9] == 'Exception':
             self.pl[self.manage_instance].unload_omxplayer()
+            # ---- Moved from self.state_play_idle_video() to here! ----
+            # Enable buzzer if countdown video has been completely
+            # finished and unloaded:
+            if self.manage_instance == OMXINSTANCE_CNTDN:
+                self.buzzer_enabled = True
         # video fading:
         self.pl[self.manage_instance].fade()
 
@@ -522,10 +542,16 @@ class StateMachine:
                     # Do nothing if there is no free idle-instance.
                     # Even don't touch the state of the state machine.
                     pass
+                    print_verbose('#Error-Gaudi: OMXINSTANCE_NONE!', 
+                             VERBOSE_ERROR) # Error-Gaudi
                 elif inst == OMXINSTANCE_IDLE1:
-                    self.state = STATE_START_IDLE1_VIDEO
+                    self.state = STATE_START_IDLE1_VIDEO \
+                                 if self.state != STATE_SELECT_APPL_VIDEO \
+                                 else STATE_WAIT2_CNTDN_VIDEO
                 elif inst == OMXINSTANCE_IDLE2:
-                    self.state = STATE_START_IDLE2_VIDEO
+                    self.state = STATE_START_IDLE2_VIDEO \
+                                 if self.state != STATE_SELECT_APPL_VIDEO \
+                                 else STATE_WAIT2_CNTDN_VIDEO
                 else: # OMXINSTANCE_ERR_NO_VIDEO
                     self.errmsg = 'No idle videos available to ' \
                                   'initialise instance {}'.format(inst)
@@ -553,7 +579,6 @@ class StateMachine:
                         self.state = STATE_PLAY_IDLE1_VIDEO
                     elif inst_waiting == OMXINSTANCE_IDLE2:
                         self.state = STATE_PLAY_IDLE2_VIDEO
-                    ###print('instance {} initiated to start'.format(inst_waiting))
         else:
             # do nothing!
             pass
@@ -569,15 +594,30 @@ class StateMachine:
         #  File "./photomat.py", line 553, in state_play_idle_video
         #    self.pl[inst].omxplayer.set_position(0)
         #AttributeError: 'NoneType' object has no attribute 'set_position'
-        if self.pl[inst] is None:
-            print_verbose('ERROR: state_play_idle_video():\n' \
-                          'self.pl[{}] is None'.format(inst),
-                          VERBOSE_ERROR)
-        else:
-            self.pl[inst].omxplayer.set_position(0)
-            self.pl[inst].set_alpha(self.pl[inst].alpha_start)
-            self.pl[inst].omxplayer.play()
-            self.state = STATE_SELECT_IDLE_VIDEO
+        
+        
+        #if self.pl[inst] is None:
+        #    print_verbose('ERROR: state_play_idle_video():\n' \
+        #                  'self.pl[{}] is None'.format(inst),
+        #                  VERBOSE_ERROR)
+        #else:
+            if self.pl[inst].omxplayer is None: # Error-Gaudi
+                print_verbose('#Error-Gaudi: state_play_idle_video\n#Error-Gaudi: self.pl[inst].omxplayer is None (inst=={})'.format(inst), 
+                              VERBOSE_ERROR) # Error-Gaudi
+                # On isNone-error set state machine to select a new video:
+                self.state = STATE_SELECT_IDLE_VIDEO
+            #elif self.pl[inst].playback_status != 'Playing' and \
+            #     self.pl[inst].playback_status != 'None':
+            #    print_verbose('#Error-Gaudi: self.state_play_idle_video(inst=={}): playback_status=="{}"\n'.format(
+            #                      inst,
+            #                      self.pl[OMXINSTANCE_CNTDN].playback_status,),
+            #                  VERBOSE_ERROR) # Error-Gaudi    
+            else:    
+                self.pl[inst].omxplayer.set_position(0)
+                self.pl[inst].set_alpha(self.pl[inst].alpha_start)
+                self.pl[inst].omxplayer.play()
+                #self.buzzer_enabled = True # Important: This command was moved to method self.manage_players()!
+                self.state = STATE_SELECT_IDLE_VIDEO
 
     #### Countdown video states ####
     def state_select_cntdn_video(self, cntdn_fadetime=2):
@@ -636,11 +676,25 @@ class StateMachine:
 
     def state_play_cntdn_video(self):
         ###print('instance {} started to play a video'.format(OMXINSTANCE_CNTDN))
-        self.pl[OMXINSTANCE_CNTDN].omxplayer.set_position(0)
-        self.pl[OMXINSTANCE_CNTDN].set_alpha(
-             self.pl[OMXINSTANCE_CNTDN].alpha_start)
-        self.pl[OMXINSTANCE_CNTDN].omxplayer.play()
-        self.state = STATE_WAIT1_CNTDN_VIDEO
+        # Error-Gaudi:
+        if self.pl[OMXINSTANCE_CNTDN].omxplayer is None: # Error-Gaudi
+            print_verbose('#Error-Gaudi: self.state_play_cntdn_video:\n#Error-Gaudi: self.pl[OMXINSTANCE_CNTDN].omxplayer is None!', 
+                          VERBOSE_ERROR) # Error-Gaudi
+            self.state = STATE_SELECT_CNTDN_VIDEO #STATE_START_CNTDN_VIDEO
+            print_verbose('#Error-Gaudi: state was set to {} again due to isNone-error!'.format(
+                          self.state_name()),
+                          VERBOSE_ERROR) # Error-Gaudi
+        #elif self.pl[OMXINSTANCE_CNTDN].playback_status != 'Playing' and \
+        #     self.pl[OMXINSTANCE_CNTDN].playback_status != 'Paused' and \
+        #     self.pl[OMXINSTANCE_CNTDN].playback_status != 'None':
+        #    print_verbose('#Error-Gaudi: self.state_play_cntdn_video: playback_status=="{}"\n'.format(self.pl[OMXINSTANCE_CNTDN].playback_status),
+        #                  VERBOSE_ERROR) # Error-Gaudi            
+        else:
+            self.pl[OMXINSTANCE_CNTDN].omxplayer.set_position(0)
+            self.pl[OMXINSTANCE_CNTDN].set_alpha(
+                 self.pl[OMXINSTANCE_CNTDN].alpha_start)
+            self.pl[OMXINSTANCE_CNTDN].omxplayer.play()
+            self.state = STATE_WAIT1_CNTDN_VIDEO
 
     def state_wait_cntdn_video(self):
         ##print('waiting for end of instance {}: now "{}"'.format(
@@ -656,17 +710,19 @@ class StateMachine:
                                  VERBOSE_ACTION)
                    self.pl[OMXINSTANCE_IDLE1].unload_omxplayer()
                    self.pl[OMXINSTANCE_IDLE2].unload_omxplayer()
-                   # Avoid further calls of this if-branch:
-                   self.state = STATE_WAIT2_CNTDN_VIDEO
+                   # Load the first idle instance with applause video:
+                   self.state = STATE_SELECT_APPL_VIDEO
+                   ## # Avoid further calls of this if-branch:
+                   ## self.state = STATE_WAIT2_CNTDN_VIDEO
                 
             # DEBUG!
             remaining = self.pl[OMXINSTANCE_CNTDN].duration \
                         - self.pl[OMXINSTANCE_CNTDN].position
             if remaining <= self.pl[OMXINSTANCE_CNTDN].fadetime_end:
                 # change state of state machine
-                self.state = STATE_SELECT_APPL_VIDEO
+                self.state = STATE_START_IDLE1_VIDEO #self.state = STATE_SELECT_APPL_VIDEO
         else: # self.pl[OMXINSTANCE_CNTDN] isn't running
-               self.state = STATE_SELECT_APPL_VIDEO
+                self.state = STATE_START_IDLE1_VIDEO #self.state = STATE_SELECT_APPL_VIDEO
 
     #### Loop of the state machine ####    
     def run(self):
@@ -696,7 +752,7 @@ class StateMachine:
             
             # Check for buzzer button
             # and ignore it if it has been already pressed:
-            if self.state < STATE_SELECT_CNTDN_VIDEO: # ignore if pressed
+            if self.buzzer_enabled:
                 buzzer = self.gpio_buzzer.is_pressed
                 if buzzer == last_buzzer:
                     buzzer_debounce += 1
@@ -707,6 +763,7 @@ class StateMachine:
                     print_verbose('<= buzzer has been tied to GND' 
                                   + ' (debounced) ',
                                   VERBOSE_GPIO)
+                    self.buzzer_enabled = False
                     self.state = STATE_SELECT_CNTDN_VIDEO
             
             # Check for exit button:
