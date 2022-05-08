@@ -2,6 +2,11 @@
 yet another omxplayer wrapper which plays random videos for intended usage on
 photobooth equipment.
 
+## Attention!
+Please don't use this repository any longer because it's so buggy!  
+There is an improved version of this software in my repository
+[`ravidplay`](https://github.com/schlizbaeda/ravidplay)
+
 ## GPIO connections
 * GPIO17 (pin 11): buzzer push button
 * GPIO7 (pin 26): trigger signal for external camera
